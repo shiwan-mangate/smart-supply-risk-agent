@@ -1,25 +1,36 @@
-import os
 import operator
 from typing import Annotated, List, TypedDict
 
-from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
-# Load environment variables
-load_dotenv()
+from src.config import GROQ_API_KEY, MODEL_NAME, TEMPERATURE
+from src.prompts import (
+    MARKET_ANALYST_PROMPT,
+    LOGISTICS_PROMPT,
+    INVENTORY_PROMPT,
+    EXECUTIVE_PROMPT,
+    RISK_REPORT_PROMPT
+)
+from src.schemas import RiskReportSchema
+from src.logger import logger
 
-# Initialize Groq LLM
+
+# -------------------------
+# LLM INITIALIZATION
+# -------------------------
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    groq_api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0.3
+    model=MODEL_NAME,
+    groq_api_key=GROQ_API_KEY,
+    temperature=TEMPERATURE
 )
 
+structured_llm = llm.with_structured_output(RiskReportSchema)
 
-# -----------------------------
-# STATE DEFINITION
-# -----------------------------
+
+# -------------------------
+# STATE
+# -------------------------
 class AgentState(TypedDict):
     query: str
     market_risk_report: str
@@ -30,31 +41,19 @@ class AgentState(TypedDict):
     history: Annotated[List[str], operator.add]
 
 
-# -----------------------------
-# AGENT 1: MARKET ANALYST
-# -----------------------------
+# -------------------------
+# AGENT 1
+# -------------------------
 def market_analyst_node(state: AgentState):
-    """Analyzes geopolitical and market risks."""
+    logger.info("Market Analyst started")
 
-    query = state["query"]
-
-    prompt = f"""
-    You are a Global Supply Chain Market Risk Analyst.
-
-    Analyze the supply chain risks for this region/corridor:
-    {query}
-
-    Focus on:
-    - geopolitical tensions
-    - sanctions
-    - fuel price volatility
-    - port congestion
-    - economic instability
-
-    Return a concise professional risk assessment.
-    """
+    prompt = MARKET_ANALYST_PROMPT.format(
+        query=state["query"]
+    )
 
     response = llm.invoke(prompt)
+
+    logger.info("Market Analyst completed")
 
     return {
         "market_risk_report": response.content,
@@ -62,32 +61,19 @@ def market_analyst_node(state: AgentState):
     }
 
 
-# -----------------------------
-# AGENT 2: LOGISTICS COORDINATOR
-# -----------------------------
+# -------------------------
+# AGENT 2
+# -------------------------
 def logistics_coordinator_node(state: AgentState):
-    """Analyzes logistics impact from market risks."""
+    logger.info("Logistics Coordinator started")
 
-    market_signals = state["market_risk_report"]
-
-    prompt = f"""
-    You are a Supply Chain Logistics Coordinator.
-
-    Based on this market risk assessment:
-
-    {market_signals}
-
-    Analyze:
-    - route disruption
-    - alternate shipping routes
-    - transit delay estimates
-    - freight cost pressure
-    - logistics bottlenecks
-
-    Return a professional logistics impact report.
-    """
+    prompt = LOGISTICS_PROMPT.format(
+        market_signals=state["market_risk_report"]
+    )
 
     response = llm.invoke(prompt)
+
+    logger.info("Logistics Coordinator completed")
 
     return {
         "logistics_impact": response.content,
@@ -95,32 +81,19 @@ def logistics_coordinator_node(state: AgentState):
     }
 
 
-# -----------------------------
-# AGENT 3: INVENTORY STRATEGIST
-# -----------------------------
+# -------------------------
+# AGENT 3
+# -------------------------
 def inventory_strategist_node(state: AgentState):
-    """Evaluates inventory risks."""
+    logger.info("Inventory Strategist started")
 
-    logistics_impact = state["logistics_impact"]
-
-    prompt = f"""
-    You are an Inventory Risk Strategist.
-
-    Based on this logistics impact:
-
-    {logistics_impact}
-
-    Assess:
-    - stockout risk
-    - safety stock adequacy
-    - critical SKU exposure
-    - replenishment risk
-    - operational impact
-
-    Return a concise inventory risk assessment.
-    """
+    prompt = INVENTORY_PROMPT.format(
+        logistics_impact=state["logistics_impact"]
+    )
 
     response = llm.invoke(prompt)
+
+    logger.info("Inventory Strategist completed")
 
     return {
         "inventory_risk_level": response.content,
@@ -128,38 +101,21 @@ def inventory_strategist_node(state: AgentState):
     }
 
 
-# -----------------------------
-# AGENT 4: EXECUTIVE ORCHESTRATOR
-# -----------------------------
+# -------------------------
+# AGENT 4
+# -------------------------
 def executive_orchestrator_node(state: AgentState):
-    """Synthesizes all analysis into recommendations."""
+    logger.info("Executive Orchestrator started")
 
-    market = state["market_risk_report"]
-    logistics = state["logistics_impact"]
-    inventory = state["inventory_risk_level"]
-
-    prompt = f"""
-    You are a Chief Supply Chain Strategy Officer.
-
-    Inputs:
-
-    MARKET RISK:
-    {market}
-
-    LOGISTICS IMPACT:
-    {logistics}
-
-    INVENTORY RISK:
-    {inventory}
-
-    Generate:
-    - executive summary
-    - strategic recommendation
-    - mitigation actions
-    - operational priorities
-    """
+    prompt = EXECUTIVE_PROMPT.format(
+        market=state["market_risk_report"],
+        logistics=state["logistics_impact"],
+        inventory=state["inventory_risk_level"]
+    )
 
     response = llm.invoke(prompt)
+
+    logger.info("Executive Orchestrator completed")
 
     return {
         "final_recommendation": response.content,
@@ -167,54 +123,46 @@ def executive_orchestrator_node(state: AgentState):
     }
 
 
-# -----------------------------
-# AGENT 5: RISK REPORTER
-# -----------------------------
+# -------------------------
+# AGENT 5
+# -------------------------
 def risk_reporter_node(state: AgentState):
-    """Creates structured executive risk report."""
+    logger.info("Risk Reporter started")
 
-    recommendation = state["final_recommendation"]
+    structured_response = structured_llm.invoke(
+        RISK_REPORT_PROMPT.format(
+            recommendation=state["final_recommendation"]
+        )
+    )
 
-    prompt = f"""
-    You are an Executive Risk Reporting Agent.
+    report = f"""
+Executive Summary:
+{structured_response.executive_summary}
 
-    Based on this supply chain recommendation:
+Risk Score (1-10):
+{structured_response.risk_score}
 
-    {recommendation}
+Key Risks:
+{chr(10).join(f"- {risk}" for risk in structured_response.key_risks)}
 
-    Generate a structured report in EXACT format:
+Recommended Actions:
+{chr(10).join(f"- {action}" for action in structured_response.recommended_actions)}
 
-    Executive Summary:
-    <summary>
+Confidence Level:
+{structured_response.confidence_level}
+"""
 
-    Risk Score (1-10):
-    <score>
-
-    Key Risks:
-    - risk 1
-    - risk 2
-    - risk 3
-
-    Recommended Actions:
-    - action 1
-    - action 2
-    - action 3
-
-    Confidence Level:
-    <Low / Medium / High>
-    """
-
-    response = llm.invoke(prompt)
+    logger.info("Risk Reporter completed")
 
     return {
-        "risk_report": response.content,
-        "history": ["Risk report generated"]
+        "risk_report": report,
+        "history": ["Structured risk report generated"]
     }
 
 
-# -----------------------------
-# GRAPH CREATION
-# -----------------------------
+# -------------------------
+# GRAPH
+# -------------------------
 def create_supply_chain_graph():
     workflow = StateGraph(AgentState)
 
@@ -233,26 +181,3 @@ def create_supply_chain_graph():
     workflow.add_edge("RiskReporterAgent", END)
 
     return workflow.compile()
-
-
-# -----------------------------
-# LOCAL TEST
-# -----------------------------
-if __name__ == "__main__":
-    graph = create_supply_chain_graph()
-
-    initial_state = {
-        "query": "South China Sea Logistics",
-        "market_risk_report": "",
-        "logistics_impact": "",
-        "inventory_risk_level": "",
-        "final_recommendation": "",
-        "risk_report": "",
-        "history": []
-    }
-
-    result = graph.invoke(initial_state)
-
-    print("\n" + "=" * 60)
-    print(result["risk_report"])
-    print("=" * 60)
