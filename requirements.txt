@@ -1,5 +1,6 @@
 langgraph
-typing-extensions
-requests
-pytest
+langchain
+langchain-groq
 python-dotenv
+streamlit
+pydantic
