@@ -1,42 +1,25 @@
-import requests
+from fastembed import TextEmbedding
 from pgvector.psycopg import register_vector
 
-from src.config import HF_API_TOKEN
 from src.database import get_connection
 from src.logger import logger
 
 
-HF_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-
 class MemoryManager:
     def __init__(self):
-        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_EMBEDDING_MODEL}"
-        self.headers = {
-            "Authorization": f"Bearer {HF_API_TOKEN}"
-        }
+        self.embedder = TextEmbedding(
+            model_name="BAAI/bge-small-en-v1.5"
+        )
 
         with get_connection() as conn:
             register_vector(conn)
 
     def get_embedding(self, text: str):
-        response = requests.post(
-            self.api_url,
-            headers=self.headers,
-            json={
-                "inputs": text
-            },
-            timeout=60
+        embedding = next(
+            self.embedder.embed([text])
         )
 
-        response.raise_for_status()
-
-        embedding = response.json()
-
-        if isinstance(embedding[0], list):
-            return embedding[0]
-
-        return embedding
+        return embedding.tolist()
 
     def should_store(
         self,
@@ -61,7 +44,10 @@ class MemoryManager:
 
         summary_lower = summary.lower()
 
-        return any(keyword in summary_lower for keyword in keywords)
+        return any(
+            keyword in summary_lower
+            for keyword in keywords
+        )
 
     def remember(
         self,
@@ -75,7 +61,7 @@ class MemoryManager:
             confidence,
             summary
         ):
-            logger.info("Memory skipped (low importance)")
+            logger.info("Memory skipped")
             return
 
         embedding = self.get_embedding(summary)
@@ -132,7 +118,7 @@ class MemoryManager:
 
         if memories:
             logger.info(
-                f"Recalled {len(memories)} relevant memories"
+                f"Recalled {len(memories)} memories"
             )
 
         return memories
