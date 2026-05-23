@@ -18,7 +18,6 @@ class MemoryManager:
         embedding = next(
             self.embedder.embed([text])
         )
-
         return embedding.tolist()
 
     def should_store(
@@ -78,7 +77,7 @@ class MemoryManager:
                         summary,
                         embedding
                     )
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s::vector)
                 """, (
                     region,
                     risk_score,
@@ -105,7 +104,7 @@ class MemoryManager:
                 cur.execute("""
                     SELECT summary
                     FROM agent_memories
-                    ORDER BY embedding <-> %s
+                    ORDER BY embedding <-> %s::vector
                     LIMIT %s
                 """, (
                     query_embedding,
