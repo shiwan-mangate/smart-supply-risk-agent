@@ -1,10 +1,25 @@
 import logging
+import sys
+
 
 def setup_logger():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s"
+    logger = logging.getLogger("supply_risk_ai")
+
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.INFO)
+
+    handler = logging.StreamHandler(sys.stdout)
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s"
     )
-    return logging.getLogger("supply_risk_ai")
+
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    return logger
+
 
 logger = setup_logger()

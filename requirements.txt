@@ -1,6 +1,12 @@
+fastapi
+uvicorn
 langgraph
 langchain
 langchain-groq
 python-dotenv
-streamlit
+requests
+sentence-transformers
+chromadb
+apscheduler
 pydantic
+newsapi-python
