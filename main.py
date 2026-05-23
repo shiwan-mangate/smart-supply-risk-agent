@@ -1,4 +1,6 @@
+import sys
 import asyncio
+import traceback
 
 from src.graph_logic import create_supply_chain_graph
 from src.database import save_analysis, save_critical_alert
@@ -8,32 +10,21 @@ def parse_risk_report(report_text: str):
     lines = report_text.splitlines()
 
     executive_summary = ""
-    risk_score = 0.0
+    risk_score = 0
     confidence_level = "Unknown"
 
     for i, line in enumerate(lines):
-        clean_line = line.strip().replace("*", "")
+        if "Executive Summary:" in line and i + 1 < len(lines):
+            executive_summary = lines[i + 1].strip()
 
-        if "Executive Summary:" in clean_line:
-            if i + 1 < len(lines):
-                executive_summary = lines[i + 1].strip()
+        if "Risk Score" in line and i + 1 < len(lines):
+            try:
+                risk_score = int(float(lines[i + 1].strip()))
+            except ValueError:
+                risk_score = 0
 
-        if "Risk Score" in clean_line:
-            if i + 1 < len(lines):
-                try:
-                    risk_score = float(
-                        lines[i + 1].strip().replace("*", "")
-                    )
-                except ValueError:
-                    risk_score = 0.0
-
-        if "Confidence Level:" in clean_line:
-            if i + 1 < len(lines):
-                confidence_level = (
-                    lines[i + 1]
-                    .strip()
-                    .replace("*", "")
-                )
+        if "Confidence Level:" in line and i + 1 < len(lines):
+            confidence_level = lines[i + 1].strip()
 
     return executive_summary, risk_score, confidence_level
 
@@ -48,7 +39,7 @@ def build_initial_state(region: str):
         "final_recommendation": "",
         "competitor_status": "",
         "risk_report": "",
-        "risk_score": 0.0,
+        "risk_score": 0,
         "confidence_level": "",
         "reanalysis_count": 0,
         "is_reanalysis": False,
@@ -64,44 +55,39 @@ async def run_risk_intelligence_async(region: str):
     risk_graph = create_supply_chain_graph()
     inputs = build_initial_state(region)
 
-    try:
-        final_state = await risk_graph.ainvoke(inputs)
+    final_state = await risk_graph.ainvoke(inputs)
 
-        report = final_state["risk_report"]
+    report = final_state["risk_report"]
 
-        executive_summary, risk_score, confidence_level = parse_risk_report(report)
+    executive_summary, risk_score, confidence_level = parse_risk_report(report)
 
-        save_analysis(
+    save_analysis(
+        region=region,
+        risk_score=risk_score,
+        confidence_level=confidence_level,
+        executive_summary=executive_summary
+    )
+
+    if risk_score >= 8:
+        save_critical_alert(
             region=region,
             risk_score=risk_score,
-            confidence_level=confidence_level,
             executive_summary=executive_summary
         )
 
-        if risk_score >= 8:
-            save_critical_alert(
-                region=region,
-                risk_score=risk_score,
-                executive_summary=executive_summary
-            )
+    print("\n" + "=" * 60)
+    print(f"AI RISK REPORT: {region}")
+    print("=" * 60)
+    print(report)
+    print("=" * 60)
 
-        print("\n" + "=" * 60)
-        print(f"AI RISK REPORT: {region}")
-        print("=" * 60)
-        print(report)
-        print("=" * 60)
-
-        return {
-            "region": region,
-            "risk_score": risk_score,
-            "confidence": confidence_level,
-            "summary": executive_summary,
-            "state": final_state
-        }
-
-    except Exception as e:
-        print(f"Error during orchestration for {region}: {e}")
-        return None
+    return {
+        "region": region,
+        "risk_score": risk_score,
+        "confidence": confidence_level,
+        "summary": executive_summary,
+        "state": final_state
+    }
 
 
 def run_risk_intelligence(region: str):
@@ -110,7 +96,7 @@ def run_risk_intelligence(region: str):
 
 async def run_parallel_analysis(
     regions: list[str],
-    max_concurrency: int = 1
+    max_concurrency: int = 2
 ):
     print("\n=== STARTING PARALLEL MULTI-REGION ANALYSIS ===")
 
@@ -118,7 +104,11 @@ async def run_parallel_analysis(
 
     async def bounded_run(region: str):
         async with semaphore:
-            return await run_risk_intelligence_async(region)
+            try:
+                return await run_risk_intelligence_async(region)
+            except Exception:
+                traceback.print_exc()
+                return None
 
     tasks = [
         bounded_run(region)
@@ -133,17 +123,20 @@ async def run_parallel_analysis(
 
 
 if __name__ == "__main__":
-    regions = [
-        "South China Sea",
-        "Red Sea",
-        "Taiwan Strait"
-    ]
+    try:
+        regions = [
+            "South China Sea",
+            "Red Sea",
+            "Taiwan Strait"
+        ]
 
-    asyncio.run(
-        run_parallel_analysis(
-            regions=regions,
-            max_concurrency=1
+        asyncio.run(
+            run_parallel_analysis(
+                regions=regions,
+                max_concurrency=2
+            )
         )
-    )
 
-    # run_risk_intelligence("South China Sea Logistics")
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)

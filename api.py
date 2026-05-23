@@ -1,4 +1,5 @@
 from typing import List, Optional
+import traceback
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,13 +29,13 @@ class AnalyzeRequest(BaseModel):
 
 
 class BatchAnalyzeRequest(BaseModel):
-    regions: List[str]
+    regions: List[str] = Field(..., min_length=1)
     max_concurrency: Optional[int] = 2
 
 
 class AnalysisResponse(BaseModel):
     region: str
-    risk_score: float
+    risk_score: int
     confidence: str
     summary: str
     state: dict
@@ -42,7 +43,7 @@ class AnalysisResponse(BaseModel):
 
 class HistoryRecord(BaseModel):
     region: str
-    risk_score: float
+    risk_score: int
     confidence_level: str
     executive_summary: str
     timestamp: str
@@ -50,12 +51,12 @@ class HistoryRecord(BaseModel):
 
 class CriticalAlertRecord(BaseModel):
     region: str
-    risk_score: float
+    risk_score: int
     executive_summary: str
     timestamp: str
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {
         "service": "Supply Chain Risk Intelligence API",
@@ -82,19 +83,10 @@ async def health_check():
 async def analyze_region(request: AnalyzeRequest):
     try:
         result = await run_risk_intelligence_async(request.region)
-
-        if not result:
-            raise HTTPException(
-                status_code=500,
-                detail="Analysis failed"
-            )
-
         return result
 
-    except HTTPException:
-        raise
-
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Internal analysis error: {str(e)}"
@@ -104,7 +96,7 @@ async def analyze_region(request: AnalyzeRequest):
 @app.post("/analyze/batch")
 async def analyze_batch(request: BatchAnalyzeRequest):
     try:
-        if len(request.regions) == 0:
+        if not request.regions:
             raise HTTPException(
                 status_code=400,
                 detail="Regions list cannot be empty"
@@ -124,10 +116,8 @@ async def analyze_batch(request: BatchAnalyzeRequest):
             "results": successful
         }
 
-    except HTTPException:
-        raise
-
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Batch analysis failed: {str(e)}"
@@ -145,12 +135,13 @@ async def history():
                 risk_score=row[1],
                 confidence_level=row[2],
                 executive_summary=row[3],
-                timestamp=row[4]
+                timestamp=str(row[4])
             )
             for row in rows
         ]
 
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch history: {str(e)}"
@@ -167,12 +158,13 @@ async def critical_alerts():
                 region=row[0],
                 risk_score=row[1],
                 executive_summary=row[2],
-                timestamp=row[3]
+                timestamp=str(row[3])
             )
             for row in rows
         ]
 
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch alerts: {str(e)}"
