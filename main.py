@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import traceback
+import re
 
 from src.graph_logic import create_supply_chain_graph
 from src.database import save_analysis, save_critical_alert
@@ -14,16 +15,27 @@ def parse_risk_report(report_text: str):
     confidence_level = "Unknown"
 
     for i, line in enumerate(lines):
-        if "Executive Summary:" in line and i + 1 < len(lines):
+        clean_line = line.strip()
+
+        if "Executive Summary:" in clean_line and i + 1 < len(lines):
             executive_summary = lines[i + 1].strip()
 
-        if "Risk Score" in line and i + 1 < len(lines):
-            try:
-                risk_score = int(float(lines[i + 1].strip()))
-            except ValueError:
-                risk_score = 0
+        if "Risk Score" in clean_line:
+            # Prefer next line (actual score)
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
 
-        if "Confidence Level:" in line and i + 1 < len(lines):
+                match = re.search(r"(\d+(\.\d+)?)", next_line)
+                if match:
+                    risk_score = int(float(match.group(1)))
+                    continue
+
+            # fallback if score is on same line
+            match = re.search(r":\s*(\d+(\.\d+)?)", clean_line)
+            if match:
+                risk_score = int(float(match.group(1)))
+
+        if "Confidence Level:" in clean_line and i + 1 < len(lines):
             confidence_level = lines[i + 1].strip()
 
     return executive_summary, risk_score, confidence_level
