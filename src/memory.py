@@ -1,25 +1,46 @@
-import uuid
-from datetime import datetime
+import requests
+from pgvector.psycopg import register_vector
 
-import chromadb
-from sentence_transformers import SentenceTransformer
-
+from src.config import HF_API_TOKEN
+from src.database import get_connection
 from src.logger import logger
+
+
+HF_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class MemoryManager:
     def __init__(self):
-        self.client = chromadb.PersistentClient(path="memory_store")
+        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_EMBEDDING_MODEL}"
+        self.headers = {
+            "Authorization": f"Bearer {HF_API_TOKEN}"
+        }
 
-        self.collection = self.client.get_or_create_collection(
-            name="supply_chain_memories"
+        with get_connection() as conn:
+            register_vector(conn)
+
+    def get_embedding(self, text: str):
+        response = requests.post(
+            self.api_url,
+            headers=self.headers,
+            json={
+                "inputs": text
+            },
+            timeout=60
         )
 
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        response.raise_for_status()
+
+        embedding = response.json()
+
+        if isinstance(embedding[0], list):
+            return embedding[0]
+
+        return embedding
 
     def should_store(
         self,
-        risk_score: float,
+        risk_score: int,
         confidence: str,
         summary: str
     ) -> bool:
@@ -40,73 +61,81 @@ class MemoryManager:
 
         summary_lower = summary.lower()
 
-        if any(keyword in summary_lower for keyword in keywords):
-            return True
-
-        return False
+        return any(keyword in summary_lower for keyword in keywords)
 
     def remember(
         self,
         region: str,
-        risk_score: float,
+        risk_score: int,
         confidence: str,
         summary: str
     ):
-        try:
-            if not self.should_store(risk_score, confidence, summary):
-                logger.info("Memory skipped (low importance)")
-                return
+        if not self.should_store(
+            risk_score,
+            confidence,
+            summary
+        ):
+            logger.info("Memory skipped (low importance)")
+            return
 
-            timestamp = datetime.now().isoformat()
+        embedding = self.get_embedding(summary)
 
-            memory_text = f"""
-Region: {region}
-Risk Score: {risk_score}
-Confidence: {confidence}
-Summary: {summary}
-Timestamp: {timestamp}
-"""
+        with get_connection() as conn:
+            register_vector(conn)
 
-            embedding = self.embedder.encode(memory_text).tolist()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO agent_memories (
+                        region,
+                        risk_score,
+                        confidence,
+                        summary,
+                        embedding
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    region,
+                    risk_score,
+                    confidence,
+                    summary,
+                    embedding
+                ))
 
-            self.collection.add(
-                ids=[str(uuid.uuid4())],
-                documents=[memory_text],
-                embeddings=[embedding],
-                metadatas=[{
-                    "region": region,
-                    "risk_score": risk_score,
-                    "confidence": confidence,
-                    "timestamp": timestamp
-                }]
+            conn.commit()
+
+        logger.info("Memory stored successfully")
+
+    def recall(
+        self,
+        query: str,
+        top_k: int = 3
+    ):
+        query_embedding = self.get_embedding(query)
+
+        with get_connection() as conn:
+            register_vector(conn)
+
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT summary
+                    FROM agent_memories
+                    ORDER BY embedding <-> %s
+                    LIMIT %s
+                """, (
+                    query_embedding,
+                    top_k
+                ))
+
+                rows = cur.fetchall()
+
+        memories = [row[0] for row in rows]
+
+        if memories:
+            logger.info(
+                f"Recalled {len(memories)} relevant memories"
             )
 
-            logger.info("Memory stored successfully")
-
-        except Exception as e:
-            logger.error(f"Memory store failed: {e}")
-
-    def recall(self, query: str, top_k: int = 3):
-        try:
-            query_embedding = self.embedder.encode(query).tolist()
-
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k
-            )
-
-            documents = results.get("documents", [[]])[0]
-
-            if not documents:
-                return []
-
-            logger.info(f"Recalled {len(documents)} relevant memories")
-
-            return documents
-
-        except Exception as e:
-            logger.error(f"Memory recall failed: {e}")
-            return []
+        return memories
 
     def format_memories(self, memories):
         if not memories:

@@ -83,11 +83,14 @@ def fetch_news(query: str) -> str:
         logger.error(f"News fetch failed: {e}")
         return "News data unavailable."
 
-
 async def memory_recall_node(state: AgentState):
     logger.info("Memory Recall Agent started")
 
-    memories = memory_manager.recall(state["query"])
+    memories = await asyncio.to_thread(
+        memory_manager.recall,
+        state["query"]
+    )
+
     recalled_context = memory_manager.format_memories(memories)
 
     logger.info("Memory Recall Agent completed")
@@ -324,11 +327,12 @@ async def memory_store_node(state: AgentState):
             executive_summary = report_lines[i + 1].strip()
             break
 
-    memory_manager.remember(
-        region=state["query"],
-        risk_score=state["risk_score"],
-        confidence=state["confidence_level"],
-        summary=executive_summary
+    await asyncio.to_thread(
+        memory_manager.remember,
+        state["query"],
+        state["risk_score"],
+        state["confidence_level"],
+        executive_summary
     )
 
     logger.info("Memory Store Agent completed")

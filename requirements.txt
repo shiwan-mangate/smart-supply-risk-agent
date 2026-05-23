@@ -5,8 +5,8 @@ langchain
 langchain-groq
 python-dotenv
 requests
-sentence-transformers
-chromadb
+psycopg[binary]
+pgvector
 apscheduler
 pydantic
 newsapi-python
